@@ -1,93 +1,70 @@
+import os
 import torch
 import torch.nn as nn
-import torchvision.models as models
 import torchvision.transforms as transforms
-import torchvision.datasets as datasets
-import torch.optim as optim
 from PIL import Image
-import numpy as np
-import os
+import matplotlib.pyplot as plt
+import torchvision.models as models 
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-# MobileNetV2 모델 정의 및 수정
+# SignClassifier 클래스 정의
 class SignClassifier(nn.Module):
     def __init__(self, num_classes):
         super(SignClassifier, self).__init__()
-        self.model = models.mobilenet_v2(pretrained=True)  # MobileNetV2로 변경
-        self.model.classifier[1] = nn.Linear(self.model.last_channel, num_classes)
+        # MobileNetV3 모델을 가져와 수정
+        self.model = models.mobilenet_v3_small(weights=models.MobileNet_V3_Small_Weights.DEFAULT)
+        # Adaptive Average Pooling 추가하여 고정된 크기의 출력 얻기
+        self.model.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        # 기존의 classifier를 제거하고 새로운 다층 구조 추가
+        self.model.classifier = nn.Sequential(
+            nn.Linear(576, 128),  # Adaptive Pooling 후 크기 576을 사용
+            nn.ReLU(),
+            nn.Dropout(0.5),  # Dropout 추가
+            nn.Linear(128, 64),  # 두 번째 레이어
+            nn.ReLU(),
+            nn.Linear(64, num_classes)  # 마지막 레이어
+        )
 
     def forward(self, x):
-        return self.model(x)
+        x = self.model.features(x)  # 특징 추출 부분
+        x = self.model.avgpool(x)   # Adaptive Pooling으로 크기 고정
+        x = torch.flatten(x, 1)  # (batch_size, 576)으로 평탄화
+        x = self.model.classifier(x)  # 새로운 classifier 통과
+        return x
 
-# 데이터셋 경로 설정
-train_data_dir = 'C:/Users/phss1/Downloads/trainCNN_Nomal'
-valid_data_dir = 'C:/Users/phss1/Downloads/validCNN_Nomal'
-test_data_dir = 'C:/Users/phss1/Downloads/testCNN_Nomal'
+# 모델 경로 설정 (Google Drive)
+model_path = 'mobileNet.pth'
 
-# 데이터 전처리 및 로더 설정
+# 모델 로드 함수
+def load_model(model_path):
+    model = SignClassifier(num_classes=4)  # 클래스 수에 맞게 모델 정의
+    model.load_state_dict(torch.load(model_path))  # 학습된 가중치 로드
+    model.eval()
+    return model
+
+# 모델 로드
+model = load_model(model_path)
+
+# 클래스 정의 (숫자에 해당하는 클래스 이름)
+classes = ['notEnter', 'notLeft', 'right', 'slow']
+
+# 이미지 전처리
 transform = transforms.Compose([
-    transforms.Resize((224, 224)),
+    transforms.Resize((224, 224)),  # 모델 입력 크기에 맞춤
     transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 ])
 
-train_dataset = datasets.ImageFolder(train_data_dir, transform=transform)
-valid_dataset = datasets.ImageFolder(valid_data_dir, transform=transform)
-test_dataset = datasets.ImageFolder(test_data_dir, transform=transform)
-
-train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=32, shuffle=True)
-valid_loader = torch.utils.data.DataLoader(valid_dataset, batch_size=32, shuffle=False)
-test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=32, shuffle=False)
-
-# 모델 및 학습 설정
-num_classes = 4  # 우회전, 천천히, 진입금지, 좌회전금지
-model = SignClassifier(num_classes).to(device)
-criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(model.parameters(), lr=0.001)
-
-# 학습 루프
-num_epochs = 10
-for epoch in range(num_epochs):
-    model.train()
-    running_loss = 0.0
-    for inputs, labels in train_loader:
-        inputs, labels = inputs.to(device), labels.to(device)
-        optimizer.zero_grad()
-        outputs = model(inputs)
-        loss = criterion(outputs, labels)
-        loss.backward()
-        optimizer.step()
-        running_loss += loss.item()
-    print(f'Epoch [{epoch+1}/{num_epochs}], Loss: {running_loss/len(train_loader):.4f}')
-
-    model.eval()
-    correct = 0
-    total = 0
-    with torch.no_grad():
-        for inputs, labels in valid_loader:
-            inputs, labels = inputs.to(device), labels.to(device)
-            outputs = model(inputs)
-            _, predicted = torch.max(outputs.data, 1)
-            total += labels.size(0)
-            correct += (predicted == labels).sum().item()
-    print(f'Validation Accuracy: {100 * correct / total:.2f}%')
-
-# 학습된 모델 저장
-model_path = 'C:/Users/phss1/Downloads/model.pth'
-torch.save(model.state_dict(), model_path)
-print(f'Model saved to {model_path}')
-
-# 나중에 모델을 로드하여 사용
-model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
-model.eval()
+# 사용자로부터 단일 이미지 입력 받기
+image_file = 'aug_398.jpg'  # 사용할 이미지 파일의 경로
+img = Image.open(image_file).convert('RGB')  # 이미지 파일 열기 및 RGB 변환
+processed_image = transform(img).unsqueeze(0)  # 전처리 및 배치 차원 추가
 
 # PGD 공격 함수 정의
 def pgd_attack(model, images, labels, eps, alpha, iters):
-    images = images.clone().detach().to(device)
-    labels = labels.clone().detach().to(device)
+    images = images.clone().detach()  
+    labels = labels.clone().detach()
     loss = nn.CrossEntropyLoss()
-    
+
     ori_images = images.clone().detach()
 
     for i in range(iters):
@@ -95,7 +72,7 @@ def pgd_attack(model, images, labels, eps, alpha, iters):
         outputs = model(images)
 
         model.zero_grad()
-        cost = loss(outputs, labels).to(device)
+        cost = loss(outputs, labels)
         cost.backward()
 
         adv_images = images + alpha * images.grad.sign()
@@ -105,51 +82,37 @@ def pgd_attack(model, images, labels, eps, alpha, iters):
     return images
 
 # PGD 공격 매개변수 설정
-eps = 0.1
-alpha = 1/255
-iters = 10
+eps = 1.0
+alpha = 20/255
+iters = 40
 
-# 클래스 라벨 정의
-classes = ['notEnter', 'notLeft', 'right', 'slow']
+# 단일 이미지에 대한 레이블 설정 (여기서는 0으로 설정, 필요에 따라 수정)
+labels = torch.tensor([0])  # 예: 'notEnter'에 대한 레이블
 
-# 데이터셋에 대해 PGD 공격 적용 및 평가
-def evaluate_with_pgd(loader, loader_name):
-    model.eval()
-    total = 0
-    correct = 0
-    results = {cls: {'total': 0, 'correct': 0} for cls in classes}
+# 공격 실행
+adv_images = pgd_attack(model, processed_image, labels, eps, alpha, iters)
 
-    for images, labels in loader:
-        images, labels = images.to(device), labels.to(device)
-        adv_images = pgd_attack(model, images, labels, eps, alpha, iters)
-        
-        # 적대적 예제로 모델 평가
-        outputs = model(adv_images)
-        _, predicted = torch.max(outputs, 1)
+# 적대적 이미지 예측 함수
+def predict(model, images):
+    with torch.no_grad():
+        outputs = model(images)
+        _, predicted = torch.max(outputs, 1)  # 예측 클래스 인덱스
+    return predicted
 
-        total += labels.size(0)
-        correct += (predicted == labels).sum().item()
+# 공격된 이미지에 대한 라벨 예측
+predicted_label = predict(model, adv_images)
 
-        # 각 클래스별로 정확도 기록
-        for i in range(len(images)):
-            true_class = classes[labels[i].item()]
-            predicted_class = classes[predicted[i].item()]
-            results[true_class]['total'] += 1
-            if predicted_class == true_class:
-                results[true_class]['correct'] += 1
+# 결과 출력
+def show_images(images, title="", predictions=None):
+    plt.figure(figsize=(15, 5))
+    for i in range(len(images)):
+        plt.subplot(1, len(images), i + 1)
+        plt.imshow(images[i].permute(1, 2, 0).cpu().numpy())
+        plt.axis('off')
+        if predictions is not None:
+            plt.title(f"Predicted: {classes[predictions[i].item()]}")
+    plt.suptitle(title)
+    plt.show()
 
-    accuracy = 100 * correct / total
-    print(f'{loader_name} - 전체 정확도: {accuracy:.2f}%')
-
-    for cls, stats in results.items():
-        class_accuracy = 100 * stats['correct'] / stats['total'] if stats['total'] > 0 else 0
-        print(f'\n실제 표지판: {cls} - 정확도: {class_accuracy:.2f}%')
-
-print("Train set에서 PGD 공격 결과:")
-evaluate_with_pgd(train_loader, "Train set")
-
-print("Test set에서 PGD 공격 결과:")
-evaluate_with_pgd(test_loader, "Test set")
-
-print("Validation set에서 PGD 공격 결과:")
-evaluate_with_pgd(valid_loader, "Validation set")
+# 원본 이미지와 공격된 이미지 출력
+show_images(adv_images, title="Adversarial Image", predictions=predicted_label)
