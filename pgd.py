@@ -83,8 +83,8 @@ def pgd_attack(model, images, labels, eps, alpha, iters):
 
 # PGD 공격 매개변수 설정
 eps = 1.0
-alpha = 20/255
-iters = 40
+alpha = 10/255
+iters = 30
 
 # 단일 이미지에 대한 레이블 설정 (여기서는 0으로 설정, 필요에 따라 수정)
 labels = torch.tensor([0])  # 예: 'notEnter'에 대한 레이블

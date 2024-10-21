@@ -84,9 +84,9 @@ def pgd_attack(model, images, labels, eps, alpha, iters):
     return images
 
 # PGD 공격 매개변수 설정
-eps = 2.0
-alpha = 5/255
-iters = 20
+eps = 1.8
+alpha = 3/255
+iters = 13
 
 @app.route('/attack', methods=['POST'])
 def attack():
@@ -130,6 +130,35 @@ def attack():
         'adversarial_label': classes[predicted_adversarial.item()],
         'original_label': classes[predicted_original.item()],
         'original_image': original_image_base64
+    })
+
+@app.route('/attackraspi', methods=['POST'])
+def attack_raspi():
+    if 'image' not in request.files:
+        return jsonify({'error': 'No image provided.'}), 400
+
+    # 사용자로부터 이미지 파일 가져오기
+    file = request.files['image']
+    img = Image.open(file).convert('RGB')
+    processed_image = transform(img).unsqueeze(0)
+
+    # 원본 이미지에 대해 예측 수행
+    with torch.no_grad():
+        outputs_original = model(processed_image)
+        _, predicted_original = torch.max(outputs_original, 1)
+
+    # 공격 실행
+    adv_images = pgd_attack(model, processed_image, predicted_original, eps, alpha, iters)
+
+    # 적대적 이미지에 대한 예측 수행
+    with torch.no_grad():
+        outputs_adversarial = model(adv_images)
+        _, predicted_adversarial = torch.max(outputs_adversarial, 1)
+
+    # 결과 반환
+    return jsonify({
+        'adversarial_label': classes[predicted_adversarial.item()],
+        'original_label': classes[predicted_original.item()]
     })
 
 
