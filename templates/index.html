@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PGD 공격 체험하기</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center; /* 수평 중앙 정렬 */
+            height: 100vh; /* 화면 전체 높이 사용 */
+            margin: 0; /* 기본 마진 제거 */
+            font-family: Arial, sans-serif; /* 기본 글꼴 설정 */
+        }
+
+        #upload-form {
+            margin-bottom: 20px; /* 폼과 결과 간 간격 */
+        }
+
+        #result {
+            display: flex;
+            justify-content: center; /* 이미지들 수평 중앙 정렬 */
+            margin-top: 20px;
+            width: 100%; /* 화면 전체 너비 사용 */
+        }
+
+        .image-container {
+            text-align: center;
+            margin: 0 20px; /* 이미지 간 간격 조절 */
+        }
+
+        .image-container img {
+            width: 300px; /* 고정 너비 */
+            height: 300px; /* 고정 높이 */
+            object-fit: cover; /* 비율 유지하며 잘림 */
+        }
+
+        /* 버튼 스타일 추가 */
+        button {
+            background-color: #321D87;
+            color: white; 
+            font-weight: 600;
+            border: none; /* 테두리 없음 */
+            padding: 5px 5px; /* 상하 10px, 좌우 20px 패딩 */
+            text-align: center; /* 중앙 정렬 */
+            text-decoration: none; /* 밑줄 없음 */
+            display: inline-block; /* 인라인 블록 */
+            font-size: 16px; /* 글자 크기 */
+            margin: 4px 2px; /* 버튼 간 간격 */
+            cursor: pointer; /* 마우스 커서 포인터 */
+            border-radius: 5px; /* 둥근 모서리 */
+            transition: background-color 0.3s; /* 배경색 변경 시 애니메이션 */
+        }
+
+        /* 버튼 호버 효과 */
+        button:hover {
+            background-color: #321D87; /* 호버 시 배경색 변경 */
+        }
+    </style>
+</head>
+<body>
+    <h1>PGD 공격 체험하기</h1>
+    <form id="upload-form" enctype="multipart/form-data">
+        <input type="file" id="image" name="image" accept="image/*" required>
+        <button type="submit">공격하기</button>
+    </form>
+
+    <div id="result">
+        <div class="image-container">
+            <h3>원본 이미지</h3>
+            <img id="original-image" src="{{ url_for('static', filename='images/default1.jpeg') }}" alt="Original Image"/>
+            <p id="original-label"></p>
+        </div>
+        <div class="image-container">
+            <h3>공격받은 이미지</h3>
+            <img id="adversarial-image" src="{{ url_for('static', filename='images/default2.jpeg') }}" alt="Adversarial Image"/>
+            <p id="adversarial-label"></p>
+        </div>
+    </div>
+
+    <script>
+        const form = document.getElementById('upload-form');
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(form);
+
+            const response = await fetch('/attack', {
+                method: 'POST',
+                body: formData,
+            });
+
+            const result = await response.json();
+            if (response.ok) {
+                document.getElementById('original-image').src = 'data:image/png;base64,' + result.original_image;
+                document.getElementById('original-label').innerText = '인식 결과: ' + result.original_label;
+                document.getElementById('adversarial-image').src = 'data:image/png;base64,' + result.adversarial_image;
+                document.getElementById('adversarial-label').innerText = '인식 결과: ' + result.adversarial_label;
+            } else {
+                alert(result.error);
+            }
+        });
+    </script>
+</body>
+</html>
